@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# PyInstaller / Electron Build
+build/
+dist/
+dist-app/
+release-assets/
+*.manifest
+*.spec.bak
+
+# GitSentinel Local Config & Logs
+.git-sentinel/
+*.log
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

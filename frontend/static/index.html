@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitSentinel - 统一仓库、密钥管理与提交拦截系统</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+            },
+            dark: {
+              900: '#090d16',
+              850: '#0f172a',
+              800: '#1e293b',
+              700: '#334155',
+              600: '#475569',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-card:hover { border-color: rgba(56, 189, 248, 0.25); }
+    .badge-glow { box-shadow: 0 0 10px rgba(56, 189, 248, 0.25); }
+  </style>
+</head>
+<body class="bg-dark-900 text-slate-100 min-h-screen font-sans antialiased flex flex-col">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-dark-700 bg-dark-850/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+          <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-sky-400 via-teal-300 to-emerald-400">
+              GitSentinel
+            </h1>
+          </div>
+          <p class="text-xs text-slate-400">统一 Git 仓库纳管</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center space-x-1 sm:space-x-2 bg-dark-800 p-1 rounded-xl border border-dark-700">
+        <button onclick="switchTab('repos')" id="tab-btn-repos" class="tab-btn px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center space-x-1.5 text-sky-400 bg-dark-700 shadow-sm">
+          <i data-lucide="folder-git-2" class="w-4 h-4"></i>
+          <span>仓库纳管</span>
+          <span id="badge-repo-count" class="ml-1 text-xs bg-dark-900 px-1.5 py-0.5 rounded-full text-slate-300">0</span>
+        </button>
+        <button onclick="switchTab('keys')" id="tab-btn-keys" class="tab-btn px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+          <i data-lucide="key" class="w-4 h-4"></i>
+          <span>密钥中心</span>
+          <span id="badge-key-count" class="ml-1 text-xs bg-dark-900 px-1.5 py-0.5 rounded-full text-slate-400">0</span>
+        </button>
+        <button onclick="switchTab('sentinel')" id="tab-btn-sentinel" class="tab-btn px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+          <i data-lucide="shield-alert" class="w-4 h-4"></i>
+          <span>提交前拦截</span>
+          <span id="badge-global-status" class="w-2 h-2 rounded-full bg-emerald-400 ml-1"></span>
+        </button>
+        <button onclick="switchTab('notifs')" id="tab-btn-notifs" class="tab-btn px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 relative">
+          <i data-lucide="bell" class="w-4 h-4"></i>
+          <span>通知动态</span>
+          <span id="badge-unread-notif" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+        </button>
+      </nav>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center space-x-3">
+        <button onclick="rescanAllRepos()" class="px-3 py-1.5 bg-dark-800 hover:bg-dark-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium border border-dark-700 flex items-center space-x-1.5 transition">
+          <i data-lucide="refresh-cw" id="rescan-spinner" class="w-3.5 h-3.5"></i>
+          <span>重新扫描</span>
+        </button>
+        <div class="flex items-center space-x-2 pl-2 border-l border-dark-700 text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-400" id="ws-indicator" title="WebSocket 已连接"></span>
+          <span id="ws-label" class="text-slate-400">在线</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- ==================== TAB 1: REPOSITORIES ==================== -->
+    <section id="tab-content-repos" class="tab-content space-y-6">
+      
+      <!-- Top Overview Stats -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">纳管仓库总数</p>
+            <p class="text-2xl font-bold text-white mt-1" id="stat-total-repos">-</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center">
+            <i data-lucide="git-branch" class="w-6 h-6"></i>
+          </div>
+        </div>
+
+        <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">未提交变动仓库</p>
+            <p class="text-2xl font-bold text-amber-400 mt-1" id="stat-dirty-repos">-</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i data-lucide="git-commit" class="w-6 h-6"></i>
+          </div>
+        </div>
+
+        <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">需同步 (落后/超前)</p>
+            <p class="text-2xl font-bold text-indigo-400 mt-1" id="stat-sync-repos">-</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+            <i data-lucide="arrow-down-up" class="w-6 h-6"></i>
+          </div>
+        </div>
+
+        <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">全局提交拦截模式</p>
+            <div class="flex items-center space-x-2 mt-1">
+              <span id="stat-global-intercept-text" class="text-sm font-semibold text-emerald-400">已开启</span>
+              <button onclick="toggleGlobalHook()" id="btn-quick-toggle-global" class="text-xs px-2 py-0.5 rounded bg-dark-700 text-slate-300 hover:text-white border border-dark-600">切换</button>
+            </div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center" id="stat-global-intercept-icon">
+            <i data-lucide="shield-check" class="w-6 h-6"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-dark-850 p-3 rounded-2xl border border-dark-700">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input type="text" id="repo-search-input" oninput="filterRepos()" placeholder="搜索仓库名称、路径、分支或绑定密钥..." class="w-full bg-dark-900 border border-dark-700 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition">
+        </div>
+        
+        <div class="flex items-center space-x-2">
+          <select id="repo-status-filter" onchange="filterRepos()" class="bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-sky-500">
+            <option value="all">全部状态</option>
+            <option value="dirty">存在未提交变动</option>
+            <option value="ahead_behind">需同步 (Ahead/Behind)</option>
+            <option value="intercept_on">已开启提交拦截</option>
+          </select>
+          <button onclick="showScanPathsModal()" class="px-3 py-2 bg-dark-800 hover:bg-dark-750 text-slate-200 border border-dark-600 rounded-xl text-xs font-medium flex items-center space-x-1.5 transition whitespace-nowrap">
+            <i data-lucide="folder-search" class="w-4 h-4 text-sky-400"></i>
+            <span>扫描设置</span>
+          </button>
+          <button onclick="showAddManualRepoModal()" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-medium flex items-center space-x-1.5 transition shadow-lg shadow-sky-600/20 whitespace-nowrap">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>导入仓库</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Repositories Grid List -->
+      <div id="repos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Rendered by JS -->
+      </div>
+      
+      <!-- Empty State -->
+      <div id="repos-empty-state" class="hidden text-center py-16 bg-dark-850 rounded-2xl border border-dark-700">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-dark-800 flex items-center justify-center text-slate-500 mb-3">
+          <i data-lucide="folder-search" class="w-8 h-8"></i>
+        </div>
+        <h3 class="text-base font-medium text-slate-300">未找到匹配的 Git 仓库</h3>
+        <p class="text-xs text-slate-500 mt-1">请尝试放宽搜索条件，或点击右上角“重新扫描”/“导入本地仓库”</p>
+      </div>
+
+    </section>
+
+    <!-- ==================== TAB 2: KEYS & CREDENTIALS ==================== -->
+    <section id="tab-content-keys" class="tab-content hidden space-y-6">
+      
+
+      <!-- All Git Identities Hub -->
+      <div class="glass-card p-5 rounded-2xl border border-dark-700 space-y-4">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <div class="flex items-center space-x-2">
+              <i data-lucide="users" class="w-5 h-5 text-sky-400"></i>
+              <h2 class="text-base font-bold text-white">全景 Git 开发者身份汇聚与快速切换</h2>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">自动搜集并汇聚全局配置、各个仓库独立作者配置及历史提交身份，支持一键切换全局或单仓作者</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="fetchIdentities()" class="px-3 py-1.5 bg-dark-800 hover:bg-dark-700 text-slate-300 rounded-xl text-xs border border-dark-600 flex items-center space-x-1.5 transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>刷新身份</span>
+            </button>
+            <button onclick="showEditGitUserModal()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-lg shadow-sky-600/20">
+              <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+              <span>自定义新身份</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Identities Grid -->
+        <div id="identities-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- SSH Key Management Section -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i data-lucide="key" class="w-5 h-5 text-amber-400"></i>
+              <span>SSH 密钥库 (~/.ssh)</span>
+            </h2>
+            <p class="text-xs text-slate-400">管理本机所有公私钥对，支持远程平台握手测试、一键复制公钥与仓库专属密钥绑定</p>
+          </div>
+          <button onclick="showGenerateKeyModal()" class="px-4 py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-sky-500/20 flex items-center space-x-2 transition">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>生成新 SSH 密钥</span>
+          </button>
+        </div>
+
+        <!-- Keys List -->
+        <div id="keys-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Rendered by JS -->
+        </div>
+
+        <!-- Empty Keys State -->
+        <div id="keys-empty-state" class="hidden text-center py-12 bg-dark-850 rounded-2xl border border-dark-700">
+          <i data-lucide="key-round" class="w-10 h-10 text-slate-500 mx-auto mb-2"></i>
+          <p class="text-sm text-slate-400">~/.ssh 目录下未检测到任何 SSH 密钥</p>
+          <button onclick="showGenerateKeyModal()" class="mt-3 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs">立即生成 Ed25519 密钥</button>
+        </div>
+      </div>
+
+      <!-- Mapped SSH Hosts from ~/.ssh/config -->
+      <div id="ssh-hosts-section" class="hidden glass-card p-5 rounded-2xl border border-dark-700 space-y-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="server" class="w-4 h-4 text-emerald-400"></i>
+          <h3 class="text-sm font-bold text-white">~/.ssh/config 主机路由映射</h3>
+        </div>
+        <div id="ssh-hosts-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==================== TAB 3: SENTINEL INTERCEPTOR ==================== -->
+    <section id="tab-content-sentinel" class="tab-content hidden space-y-6">
+      
+      <!-- Interceptor Master Banner -->
+      <div class="glass-card p-6 rounded-2xl border border-dark-700 relative overflow-hidden">
+        <div class="absolute right-0 top-0 bottom-0 w-96 bg-gradient-to-l from-sky-500/10 to-transparent pointer-events-none"></div>
+        <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div class="space-y-2 max-w-2xl">
+            <div class="flex items-center space-x-2">
+              <span class="p-2 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                <i data-lucide="shield-alert" class="w-6 h-6"></i>
+              </span>
+              <h2 class="text-xl font-bold text-white">Git 提交与上传双重智能拦截 (Commit & Push Sentinel)</h2>
+            </div>
+            <p class="text-sm text-slate-300 leading-relaxed">
+              开启后，当你在<strong>终端、VS Code、Cursor、IDEA、Git GUI 等任何工具</strong>中执行 <code class="px-1.5 py-0.5 rounded bg-dark-900 text-sky-300 font-mono text-xs">git commit</code> (本地提交) 或 <code class="px-1.5 py-0.5 rounded bg-dark-900 text-emerald-300 font-mono text-xs">git push</code> (代码上传推送) 时，
+              GitSentinel 都会即时拦截并弹出置顶安全审核窗口，明确提示<strong>是否有敏感文件或机密泄露</strong>。提供清晰的【放行】与【拦截】按钮：点击【放行】继续上传，点击【拦截】立即阻止本次 Git 上传与提交！
+            </p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button onclick="toggleGlobalHook()" id="btn-toggle-global-master" class="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-white transition flex items-center justify-center space-x-2 shadow-lg bg-emerald-600 hover:bg-emerald-500">
+              <i data-lucide="power" class="w-4 h-4"></i>
+              <span id="btn-toggle-global-master-text">全局拦截: 已开启</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Security Rules & Secret Patterns -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Sensitive Files Rule Card -->
+        <div class="glass-card p-5 rounded-2xl border border-dark-700 space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="file-warning" class="w-5 h-5 text-rose-400"></i>
+              <h3 class="text-sm font-bold text-white">敏感文件名拦截规则</h3>
+            </div>
+            <span class="text-xs text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">高危直接阻断</span>
+          </div>
+          <p class="text-xs text-slate-400">匹配以下模式的文件若被暂存进提交区，拦截器将触发红色高危警告并强制要求二次确认：</p>
+          <div class="flex flex-wrap gap-2" id="sensitive-files-tags">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Secret Leak Patterns Card -->
+        <div class="glass-card p-5 rounded-2xl border border-dark-700 space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="scan-line" class="w-5 h-5 text-amber-400"></i>
+              <h3 class="text-sm font-bold text-white">代码机密泄露检测引擎</h3>
+            </div>
+            <span class="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">实时正则扫描</span>
+          </div>
+          <p class="text-xs text-slate-400">在提交前扫描新增代码 (Diff +行)，自动检出潜在硬编码的 Token、私钥或凭据：</p>
+          <div class="space-y-2 text-xs" id="secret-patterns-list">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ==================== TAB 4: ACTIVITY & NOTIFICATIONS ==================== -->
+    <section id="tab-content-notifs" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+            <i data-lucide="bell-ring" class="w-5 h-5 text-sky-400"></i>
+            <span>通知与动态动态流</span>
+          </h2>
+          <p class="text-xs text-slate-400">监控远程更新、提交成功记录与安全拦截审计日志</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="testToastNotification()" class="px-3.5 py-1.5 bg-dark-800 hover:bg-dark-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium border border-dark-700 flex items-center space-x-1.5 transition">
+            <i data-lucide="send" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span>测试系统桌面通知</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notifications List -->
+      <div class="glass-card rounded-2xl border border-dark-700 divide-y divide-dark-700 overflow-hidden" id="notifications-list">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal: Test Connection Result -->
+  <div id="modal-test-conn" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="radio" class="w-5 h-5 text-sky-400"></i>
+          <span>SSH 连通性测试报告</span>
+        </h3>
+        <button onclick="closeModal('modal-test-conn')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div id="test-conn-content" class="space-y-3">
+        <!-- Content injected by JS -->
+      </div>
+      <div class="flex justify-end pt-2">
+        <button onclick="closeModal('modal-test-conn')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-200 rounded-xl text-xs font-medium">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Generate SSH Key -->
+  <div id="modal-gen-key" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="key-round" class="w-5 h-5 text-amber-400"></i>
+          <span>生成新 SSH 密钥对</span>
+        </h3>
+        <button onclick="closeModal('modal-gen-key')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <form onsubmit="submitGenerateKey(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">密钥文件名</label>
+          <input type="text" id="gen-key-name" required placeholder="例如: id_ed25519_github 或 work_rsa" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">密钥算法类型</label>
+          <select id="gen-key-type" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+            <option value="ed25519">Ed25519 (强烈推荐，速度极快且极度安全)</option>
+            <option value="rsa">RSA 4096 (传统兼容性最好)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">注释 / 邮箱 (可选)</label>
+          <input type="text" id="gen-key-comment" placeholder="例如: your_email@example.com" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">访问密码 Passphrase (可选)</label>
+          <input type="password" id="gen-key-passphrase" placeholder="可留空免密码" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+        </div>
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeModal('modal-gen-key')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">取消</button>
+          <button type="submit" id="btn-submit-gen-key" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">生成密钥</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Bind Repo Key -->
+  <div id="modal-bind-key" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="link" class="w-5 h-5 text-sky-400"></i>
+          <span>为仓库绑定专属 SSH 密钥</span>
+        </h3>
+        <button onclick="closeModal('modal-bind-key')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <p class="text-xs text-slate-400">将为该仓库配置 <code class="text-sky-300 font-mono">core.sshCommand</code>，推送与拉取时仅使用指定的私钥，解决多账号密钥冲突。</p>
+      <input type="hidden" id="bind-repo-id">
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">目标仓库</label>
+          <input type="text" id="bind-repo-name" readonly class="w-full bg-dark-900/60 border border-dark-700 rounded-xl px-3 py-2 text-slate-400 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">选择绑定的 SSH 私钥</label>
+          <select id="bind-key-select" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+            <!-- Injected by JS -->
+          </select>
+        </div>
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeModal('modal-bind-key')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">取消</button>
+          <button type="button" onclick="submitBindKey()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">保存绑定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Git User -->
+  <div id="modal-edit-user" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="user" class="w-5 h-5 text-sky-400"></i>
+          <span>修改 Git 全局作者身份</span>
+        </h3>
+        <button onclick="closeModal('modal-edit-user')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <form onsubmit="submitEditGitUser(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">用户名 (user.name)</label>
+          <input type="text" id="edit-user-name" required class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">邮箱 (user.email)</label>
+          <input type="email" id="edit-user-email" required class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+        </div>
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeModal('modal-edit-user')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">取消</button>
+          <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">保存配置</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Add Manual Repo -->
+  <div id="modal-add-repo" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="folder-plus" class="w-5 h-5 text-sky-400"></i>
+          <span>导入本地 Git 仓库</span>
+        </h3>
+        <button onclick="closeModal('modal-add-repo')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <form onsubmit="submitAddManualRepo(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1">仓库本地绝对路径</label>
+          <input type="text" id="manual-repo-path" required placeholder="例如: D:\Projects\my-repo" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+          <p class="text-slate-500 mt-1">目录内必须包含 .git 文件夹</p>
+        </div>
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeModal('modal-add-repo')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">取消</button>
+          <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">添加纳管</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Scan Paths and Depth Settings -->
+  <div id="modal-scan-paths" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="folder-search" class="w-5 h-5 text-sky-400"></i>
+          <span>Git 仓库扫描路径与深度设置</span>
+        </h3>
+        <button onclick="closeModal('modal-scan-paths')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <p class="text-xs text-slate-400">GitSentinel 会扫描并监视以下目录下的所有 Git 仓库，自动排除了模拟器、缓存与大型依赖目录。</p>
+      
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">当前监控的根目录列表</label>
+          <div id="scan-paths-list" class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <div class="pt-1">
+          <label class="block text-slate-300 font-medium mb-1">新增监控路径</label>
+          <div class="flex space-x-2">
+            <input type="text" id="new-scan-path" placeholder="例如: E:\WorkProjects 或 D:\workspace" class="flex-1 bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500">
+            <button type="button" onclick="addNewScanPath()" class="px-3.5 py-2 bg-dark-750 hover:bg-dark-700 text-sky-300 border border-dark-600 rounded-xl font-medium shrink-0">添加</button>
+          </div>
+        </div>
+
+        <div class="pt-1">
+          <label class="block text-slate-300 font-medium mb-1">目录递归扫描深度 (默认 5 级)</label>
+          <div class="flex items-center space-x-3">
+            <input type="range" id="scan-depth-slider" min="1" max="8" value="5" oninput="document.getElementById('scan-depth-val').textContent = this.value" class="flex-1 accent-sky-500">
+            <span class="font-mono text-sm text-sky-400 font-bold w-8 text-center" id="scan-depth-val">5</span>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">深度越高扫描范围越广，默认 5 级可覆盖绝大多数代码组织结构</p>
+        </div>
+
+        <div class="flex justify-between items-center pt-3 border-t border-dark-700">
+          <button type="button" onclick="triggerFullRescan()" class="px-3.5 py-2 bg-dark-750 hover:bg-dark-700 text-amber-300 border border-dark-600 rounded-xl font-medium flex items-center space-x-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>立即全盘重新扫描</span>
+          </button>
+          <div class="flex space-x-2">
+            <button type="button" onclick="closeModal('modal-scan-paths')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">关闭</button>
+            <button type="button" onclick="saveScanPathsSettings()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">保存设置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Apply Identity to Repo or Global -->
+  <div id="modal-apply-identity-repo" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dark-850 border border-dark-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i data-lucide="user-check" class="w-5 h-5 text-sky-400"></i>
+          <span>应用 Git 作者身份</span>
+        </h3>
+        <button onclick="closeModal('modal-apply-identity-repo')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="p-3 bg-dark-900 rounded-xl border border-dark-750 flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-sm" id="apply-identity-avatar">
+          H
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="font-bold text-white text-xs truncate" id="apply-identity-name">-</div>
+          <div class="text-slate-400 text-[11px] truncate font-mono mt-0.5" id="apply-identity-email">-</div>
+        </div>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">选择应用范围</label>
+          <div class="space-y-2">
+            <label class="flex items-center space-x-2.5 p-2.5 rounded-xl border border-dark-700 bg-dark-900/60 cursor-pointer hover:border-sky-500/50 transition">
+              <input type="radio" name="apply_scope" value="global" checked onchange="toggleApplyScope(this.value)" class="text-sky-500">
+              <div>
+                <span class="text-white font-medium block">设为系统全局默认作者 (--global)</span>
+                <span class="text-slate-400 text-[11px]">所有未单独配置身份的仓库将默认以此身份提交代码</span>
+              </div>
+            </label>
+
+            <label class="flex items-center space-x-2.5 p-2.5 rounded-xl border border-dark-700 bg-dark-900/60 cursor-pointer hover:border-sky-500/50 transition">
+              <input type="radio" name="apply_scope" value="local" onchange="toggleApplyScope(this.value)" class="text-sky-500">
+              <div class="flex-1">
+                <span class="text-white font-medium block">应用到指定单个仓库 (--local)</span>
+                <span class="text-slate-400 text-[11px]">仅针对选择的仓库生效，覆盖全局作者配置</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div id="apply-repo-select-container" class="hidden">
+          <label class="block text-slate-300 font-medium mb-1">选择目标仓库</label>
+          <select id="apply-target-repo-select" class="w-full bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+            <!-- Injected by JS -->
+          </select>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-2 border-t border-dark-750">
+          <button type="button" onclick="closeModal('modal-apply-identity-repo')" class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-300 rounded-xl">取消</button>
+          <button type="button" onclick="confirmApplyIdentity()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold">确认应用</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container (Web in-page) -->
+  <div id="web-toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitsentinel"
+version = "1.0.0"
+description = "统一 Git 仓库纳管 · SSH 密钥与凭据安全中心 · 提交前智能拦截确认 · 桌面应用"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "GitSentinel Team"}
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pystray>=0.19.5",
+    "pillow>=10.0.0",
+    "pywebview>=5.0.0",
+    "paramiko>=3.4.0",
+    "cryptography>=42.0.0",
+    "websockets>=12.0"
+]
+
+[project.scripts]
+gitsentinel = "sentinel:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*", "interceptor*"]
